@@ -1,0 +1,346 @@
+{
+  "name": "Monthly Invoice Automation → WhatsApp",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## SETUP CHECKLIST\n1. Google Sheets: create a sheet called 'Clients' with columns: Name, Phone (E.164 format e.g. 2348012345678), Email, Amount, Description, Status, LastSent\n2. APITemplate.io: sign up free, create a PDF invoice template, grab the Template ID + API Key\n3. WhatsApp Business Cloud: connect your Meta WhatsApp Business credential in n8n\n4. Update all placeholder values marked YOUR_... below before activating",
+        "height": 260,
+        "width": 380
+      },
+      "id": "sticky-1",
+      "name": "Setup Notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-200, 0]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtDayOfMonth": 1,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Monthly Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-200, 320]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Clients",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "get-clients",
+      "name": "Get Clients Due for Invoice",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [60, 320],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "loop-clients",
+      "name": "Loop Over Clients",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [320, 320]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a1",
+              "name": "invoiceNumber",
+              "type": "string",
+              "value": "={{ 'INV-' + $now.format('yyyyMM') + '-' + $itemIndex }}"
+            },
+            {
+              "id": "a2",
+              "name": "invoiceDate",
+              "type": "string",
+              "value": "={{ $now.format('dd LLL yyyy') }}"
+            },
+            {
+              "id": "a3",
+              "name": "clientName",
+              "type": "string",
+              "value": "={{ $json.Name }}"
+            },
+            {
+              "id": "a4",
+              "name": "clientPhone",
+              "type": "string",
+              "value": "={{ $json.Phone }}"
+            },
+            {
+              "id": "a5",
+              "name": "amount",
+              "type": "string",
+              "value": "={{ $json.Amount }}"
+            },
+            {
+              "id": "a6",
+              "name": "description",
+              "type": "string",
+              "value": "={{ $json.Description }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "build-invoice-data",
+      "name": "Build Invoice Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [580, 220]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://rest.apitemplate.io/v2/create-pdf",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "YOUR_APITEMPLATE_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "template_id",
+              "value": "YOUR_APITEMPLATE_TEMPLATE_ID"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"invoice_number\": $json.invoiceNumber, \"invoice_date\": $json.invoiceDate, \"client_name\": $json.clientName, \"amount\": $json.amount, \"description\": $json.description } }}",
+        "options": {}
+      },
+      "id": "create-pdf",
+      "name": "Generate Invoice PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [820, 220]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.download_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "download-pdf",
+      "name": "Download PDF File",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1060, 220]
+    },
+    {
+      "parameters": {
+        "resource": "media",
+        "operation": "send",
+        "phoneNumberId": "YOUR_WHATSAPP_PHONE_NUMBER_ID",
+        "recipientPhoneNumber": "={{ $('Build Invoice Fields').item.json.clientPhone }}",
+        "mediaType": "document",
+        "additionalFields": {
+          "caption": "={{ 'Invoice ' + $('Build Invoice Fields').item.json.invoiceNumber + ' — thank you for your business!' }}"
+        }
+      },
+      "id": "send-whatsapp",
+      "name": "Send Invoice via WhatsApp",
+      "type": "n8n-nodes-base.whatsApp",
+      "typeVersion": 1,
+      "position": [1300, 220],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "YOUR_WHATSAPP_CREDENTIAL_ID",
+          "name": "WhatsApp account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Clients",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Name": "={{ $('Build Invoice Fields').item.json.clientName }}",
+            "Status": "Sent",
+            "LastSent": "={{ $('Build Invoice Fields').item.json.invoiceDate }}"
+          },
+          "matchingColumns": ["Name"]
+        },
+        "options": {}
+      },
+      "id": "update-sheet",
+      "name": "Mark Invoice Sent",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1540, 220],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "id": "all-done",
+      "name": "All Invoices Sent",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [580, 460]
+    }
+  ],
+  "connections": {
+    "Monthly Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Clients Due for Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Clients Due for Invoice": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Clients": {
+      "main": [
+        [
+          {
+            "node": "All Invoices Sent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Invoice Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Invoice Fields": {
+      "main": [
+        [
+          {
+            "node": "Generate Invoice PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Invoice PDF": {
+      "main": [
+        [
+          {
+            "node": "Download PDF File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download PDF File": {
+      "main": [
+        [
+          {
+            "node": "Send Invoice via WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Invoice via WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Mark Invoice Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Invoice Sent": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Clients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
